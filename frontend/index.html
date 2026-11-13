@@ -18,11 +18,9 @@
         }
 
         .container { max-width: 1200px; margin: auto; }
-
         h1 { margin-bottom: 8px; }
         h2 { margin-top: 0; font-size: 20px; }
         h3 { font-size: 15px; margin-bottom: 8px; }
-
         .subtitle { color: #64748b; margin-bottom: 30px; }
 
         .grid {
@@ -118,9 +116,19 @@
         .pending { color: #d97706; }
         .neutral { color: #475569; }
 
-        #message { font-size: 14px; margin-top: 12px; }
-        #message:empty { display: none; }
+        #message, #emailMessage {
+            font-size: 14px;
+            margin-top: 12px;
+        }
+
+        #message:empty, #emailMessage:empty { display: none; }
         #placeholder { min-height: 400px; }
+
+        hr {
+            margin: 24px 0;
+            border: 0;
+            border-top: 1px solid #e2e8f0;
+        }
 
         @media (max-width: 768px) {
             .grid { grid-template-columns: 1fr; }
@@ -175,6 +183,7 @@ Customer: Enter your call transcript here..."></textarea>
             </p>
 
             <div id="result" hidden>
+
                 <h3>Overview</h3>
                 <p id="summary"></p>
 
@@ -198,6 +207,21 @@ Customer: Enter your call transcript here..."></textarea>
 
                 <h3>Action Items</h3>
                 <ul id="actionItems"></ul>
+
+                <!-- Email section -->
+                <hr>
+
+                <label for="recipientEmail">Recipient Email</label>
+
+                <input type="email" id="recipientEmail"
+                       placeholder="Enter email address">
+
+                <button id="sendButton" onclick="sendEmail()">
+                    Send Summary
+                </button>
+
+                <p id="emailMessage" role="status"></p>
+
             </div>
         </div>
     </div>
@@ -205,6 +229,9 @@ Customer: Enter your call transcript here..."></textarea>
 
 <script>
     const $ = id => document.getElementById(id);
+
+    let currentSummary = null;
+    let summaryTranscript = "";
 
     // Character count
     function updateCount() {
@@ -220,10 +247,20 @@ Customer: Enter your call transcript here..."></textarea>
         $("message").className = color;
     }
 
+    function showEmailMessage(text, color = "muted") {
+        $("emailMessage").textContent = text;
+        $("emailMessage").className = color;
+    }
+
     // Reset results
     function resetResult() {
+        currentSummary = null;
+        summaryTranscript = "";
+
         $("result").hidden = true;
         $("placeholder").hidden = false;
+
+        showEmailMessage("");
     }
 
     // Clear transcript
@@ -262,16 +299,18 @@ Customer: Enter your call transcript here..."></textarea>
         $(id).className = colors[value] || "neutral";
     }
 
-    // Manage loading state
+    // Loading state
     function setLoading(loading) {
         $("generateButton").disabled = loading;
         $("clearButton").disabled = loading;
+        $("sendButton").disabled = loading;
         $("transcript").readOnly = loading;
+
         $("generateButton").textContent =
             loading ? "Generating..." : "Generate Summary";
     }
 
-    // Generate AI summary
+    // Generate summary
     async function generateSummary() {
         const transcript = $("transcript").value.trim();
         const password = $("password").value;
@@ -307,6 +346,9 @@ Customer: Enter your call transcript here..."></textarea>
                     ? data.detail : "Summarization failed"
                 );
 
+            currentSummary = data;
+            summaryTranscript = transcript;
+
             $("summary").textContent = data.summary;
             $("purpose").textContent = data.call_purpose;
 
@@ -326,6 +368,75 @@ Customer: Enter your call transcript here..."></textarea>
 
         } finally {
             setLoading(false);
+        }
+    }
+
+    // Send summary email
+    async function sendEmail() {
+        const email = $("recipientEmail").value.trim();
+        const password = $("password").value;
+
+        if (!currentSummary)
+            return showEmailMessage("Generate a summary first.", "negative");
+
+        if ($("transcript").value.trim() !== summaryTranscript)
+            return showEmailMessage(
+                "Transcript changed. Generate a new summary.", "negative"
+            );
+
+        if (!email || !$("recipientEmail").checkValidity())
+            return showEmailMessage("Enter a valid email address.", "negative");
+
+        if (!password.trim())
+            return showEmailMessage("Enter the demo password.", "negative");
+
+        $("sendButton").disabled = true;
+        $("generateButton").disabled = true;
+        $("clearButton").disabled = true;
+        $("transcript").readOnly = true;
+        $("recipientEmail").readOnly = true;
+
+        $("sendButton").textContent = "Sending...";
+        showEmailMessage("Submitting email...");
+
+        try {
+            const response = await fetch("/api/send-summary", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Demo-Password": password
+                },
+                body: JSON.stringify({
+                    email: email,
+                    summary: currentSummary
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok)
+                throw new Error(
+                    typeof data.detail === "string"
+                    ? data.detail : "Failed to send email"
+                );
+
+            showEmailMessage(
+                "Email submitted successfully!", "positive"
+            );
+
+        } catch (error) {
+            showEmailMessage(
+                error.message || "Failed to send email.", "negative"
+            );
+
+        } finally {
+            $("sendButton").disabled = false;
+            $("generateButton").disabled = false;
+            $("clearButton").disabled = false;
+            $("transcript").readOnly = false;
+            $("recipientEmail").readOnly = false;
+
+            $("sendButton").textContent = "Send Summary";
         }
     }
 </script>
